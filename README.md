@@ -11,8 +11,8 @@ The harness is the main part of the grade. The game is what the harness is for.
 
 ## Deadline and submission
 
-- **Deadline:** _set by the instructors on the course page_. Work merged after the deadline is not counted.
-- Submit on the course page (e-learning): your **repository URL** and your **game URL**.
+- **Deadline:** 31. December 2026. Work merged after the deadline is not counted.
+- Send your **repository URL** and your **game URL** to the instructor@munde.group email address with your Neptun ID.
 - The repository must be **public** (or invite `ferenc-munde` as a collaborator with read access).
 - The evaluation is **automatic** (see [Grading](#grading)), then checked by an instructor. Run the self-check before you submit.
 
@@ -20,7 +20,7 @@ The harness is the main part of the grade. The game is what the harness is for.
 
 An online cooperative game in the spirit of the hackathon:
 
-- **2–4 players**, each in their own browser, play **together against the game**: they win or lose as a team.
+- **2–x players**, each in their own browser, play **together against the game**: they win or lose as a team.
 - **Real-time multiplayer:** players join one room with a **room code or a shared link**; the server owns the game state, clients only send input.
 - **Interdependence:** players need each other, for example different roles, shared resources, or tasks that need two players at once.
 - **A complete loop:** lobby → play → win or lose → play again, in rounds of a few minutes.
@@ -50,13 +50,13 @@ Your repository must contain the following. The automatic evaluator looks for ex
 ## 3. The way of working (as in the hackathon)
 
 - **Issue first.** Every change starts with a GitHub issue: a clear title, at least one label, a goal, and a **"Done when"** checklist (`- [ ] …`).
-- **GitHub Project.** One GitHub Project linked to the repository, with every issue on it and a **Status** field (Todo / In progress / Done) that you actually move.
+- **GitHub Project.** One GitHub Project linked to the repository, with every issue on it and a **Status** field (Backlog / Ready to development / In progress / QA / Accepted / Done) that you actually move.
 - **Branches:** one branch per issue, named `<type>/<issue-number>-<short-description>`, for example `feat/12-room-codes`.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/) (`feat: add room codes`), with `Refs #12` on its own line in the body.
 - **Pull requests:** one per issue, into `main`, with `Closes #12` in the description and the template filled in. Merge only when CI is green.
 - **AI first:** let agents do the work, and keep the `Co-Authored-By:` trailer your agent adds to commits.
 - **Steady work:** commits on at least **three different days**. A single dump of the whole project the night before the deadline scores low.
-- **Minimum volume:** at least **10 issues** and **8 merged pull requests**.
+- **Minimum volume:** at least **100 issues** and **60 merged pull requests**.
 
 ## Grading
 
