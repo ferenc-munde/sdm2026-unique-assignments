@@ -25,6 +25,10 @@ const CLOSES = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\s+#\d+/i;
 const REFS = /(^|\n)\s*(refs|closes|fixes|resolves)\s+#\d+/i;
 const CO_AUTHOR = /^co-authored-by:/im;
 const CHECKLIST = /^\s*[-*] \[[ xX]\]/m;
+const MIN_ISSUES = 100;
+const MIN_MERGED_PRS = 60;
+const REQUIRED_STATUSES = ["Backlog", "Ready to development", "In progress", "QA", "Accepted", "Done"];
+const SECURITY_TOOLS = /\b(npm audit|pnpm audit|yarn audit|audit-ci|codeql|gitleaks|trufflehog|semgrep|dependency-review|osv-scanner|snyk|trivy|bandit|pip-audit|grype|zizmor)\b/gi;
 const MULTIPLAYER_LIBS = [
   "colyseus", "@colyseus/sdk", "colyseus.js", "socket.io", "socket.io-client", "ws", "peerjs",
   "partykit", "partysocket", "@geckos.io/server", "@geckos.io/client", "boardgame.io", "@heroiclabs/nakama-js",
@@ -61,8 +65,8 @@ export function score(d, opts = {}) {
   const claude = file("CLAUDE.md");
   const sections = REQUIRED_SECTIONS.filter(([, re]) => re.test(claude ?? ""));
   const missingSections = REQUIRED_SECTIONS.filter(([, re]) => !re.test(claude ?? "")).map(([n]) => n);
-  checks.push(check("Harness", "H1", "CLAUDE.md with the required sections", 8,
-    (claude ? 2 : 0) + sections.length + (nonEmptyLines(claude) >= 40 ? 1 : 0),
+  checks.push(check("Harness", "H1", "CLAUDE.md with the required sections", 7,
+    (claude ? 1 : 0) + sections.length + (nonEmptyLines(claude) >= 40 ? 1 : 0),
     !claude ? "CLAUDE.md missing" : `${sections.length}/5 sections${missingSections.length ? `, missing: ${missingSections.join(", ")}` : ""}; ${nonEmptyLines(claude)} non-empty lines (40 needed for the last point)`));
 
   const agents = file("AGENTS.md");
@@ -83,8 +87,8 @@ export function score(d, opts = {}) {
 
   const runs = (d.runs ?? []).filter((r) => r.status === "completed" && before(r.created_at));
   const last = runs[0];
-  checks.push(check("Harness", "H4b", "latest CI run on the default branch is green", 4,
-    last?.conclusion === "success" ? 4 : 0,
+  checks.push(check("Harness", "H4b", "latest CI run on the default branch is green", 3,
+    last?.conclusion === "success" ? 3 : 0,
     last ? `${last.name}: ${last.conclusion} (${last.created_at})` : "no completed run on the default branch"));
 
   const ruleTypes = new Set((d.rules ?? []).map((r) => r.type));
@@ -96,8 +100,8 @@ export function score(d, opts = {}) {
 
   const issueTemplates = tree.filter((p) => /^\.github\/ISSUE_TEMPLATE\/.+\.(md|ya?ml)$/i.test(p) && !/config\.ya?ml$/i.test(p));
   const prTemplate = tree.find((p) => /^(\.github\/|docs\/)?pull_request_template\.md$/i.test(p) || /^\.github\/PULL_REQUEST_TEMPLATE\/.+\.md$/i.test(p));
-  checks.push(check("Harness", "H6", "issue and pull request templates", 4,
-    (issueTemplates.length ? 2 : 0) + (prTemplate ? 2 : 0),
+  checks.push(check("Harness", "H6", "issue and pull request templates", 3,
+    (issueTemplates.length ? 2 : 0) + (prTemplate ? 1 : 0),
     `issue templates: ${issueTemplates.length}; PR template: ${prTemplate ?? "none"}`));
 
   const skills = tree.filter((p) => /^\.claude\/skills\/[^/]+\/SKILL\.md$/i.test(p) || /^\.claude\/commands\/[^/]+\.md$/i.test(p) || /^\.agents?\/(skills|commands)\/.+\.md$/i.test(p));
@@ -115,8 +119,8 @@ export function score(d, opts = {}) {
 
   const evalDirs = [...new Set(tree.filter((p) => /^evals\/[^/]+\/task\.md$/i.test(p)).map((p) => p.split("/")[1]))];
   const evalsWithCheck = evalDirs.filter((dir) => tree.some((p) => new RegExp(`^evals/${dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/check\\.(mjs|js|ts|sh|py)$`, "i").test(p)));
-  checks.push(check("Harness", "H9", "at least three agent evals with a check", 6,
-    Math.min(3, evalsWithCheck.length) * 2,
+  checks.push(check("Harness", "H9", "at least three agent evals with a check", 5,
+    [0, 1, 3, 5][Math.min(3, evalsWithCheck.length)],
     `${evalDirs.length} task(s), ${evalsWithCheck.length} with a check script${evalsWithCheck.length ? `: ${evalsWithCheck.join(", ")}` : ""}`));
 
   const harness = file("HARNESS.md");
@@ -125,19 +129,24 @@ export function score(d, opts = {}) {
     (harness ? 1 : 0) + (nonEmptyLines(harness) >= 40 ? 1 : 0) + (new Set(links).size >= 2 ? 2 : 0),
     !harness ? "HARNESS.md missing" : `${nonEmptyLines(harness)} non-empty lines; ${new Set(links).size} link(s) to PRs or CI runs`));
 
+  const securityTools = [...new Set((prWorkflows.map((w) => w.text).join("\n").match(SECURITY_TOOLS) ?? []).map((t) => t.toLowerCase().replace(/\s+/g, " ")))];
+  checks.push(check("Harness", "H11", "security check on every pull request", 4,
+    (securityTools.length ? 3 : 0) + (securityTools.length >= 2 ? 1 : 0),
+    securityTools.length ? `in PR workflows: ${securityTools.join(", ")}` : "no dependency audit, secret scan or code scan in a workflow that runs on pull requests"));
+
   // ---- Way of working (30) ----
   const issues = (d.issues ?? []).filter((i) => !i.pull_request && before(i.created_at));
   const goodIssues = issues.filter((i) => (i.labels ?? []).length > 0 && CHECKLIST.test(i.body ?? ""));
   const issueShare = pct(goodIssues.length, issues.length);
-  checks.push(check("Way of working", "W1", "10+ issues, with a label and a \"Done when\" checklist", 6,
-    (issues.length >= 10 ? 2 : 0) + (issueShare >= 0.8 ? 4 : issueShare >= 0.5 ? 2 : 0),
+  checks.push(check("Way of working", "W1", `${MIN_ISSUES}+ issues, with a label and a "Done when" checklist`, 6,
+    (issues.length >= MIN_ISSUES ? 2 : issues.length >= MIN_ISSUES / 2 ? 1 : 0) + (issueShare >= 0.8 ? 4 : issueShare >= 0.5 ? 2 : 0),
     `${issues.length} issues; ${goodIssues.length} (${Math.round(issueShare * 100)}%) with a label and a checklist`));
 
   const merged = (d.pulls ?? []).filter((p) => p.merged_at && before(p.merged_at));
   const closing = merged.filter((p) => CLOSES.test(p.body ?? ""));
   const closeShare = pct(closing.length, merged.length);
-  checks.push(check("Way of working", "W2", "8+ merged pull requests that close an issue", 5,
-    (merged.length >= 8 ? 2 : 0) + (closeShare >= 0.8 ? 3 : closeShare >= 0.5 ? 1 : 0),
+  checks.push(check("Way of working", "W2", `${MIN_MERGED_PRS}+ merged pull requests that close an issue`, 5,
+    (merged.length >= MIN_MERGED_PRS ? 2 : merged.length >= MIN_MERGED_PRS / 2 ? 1 : 0) + (closeShare >= 0.8 ? 3 : closeShare >= 0.5 ? 1 : 0),
     `${merged.length} merged PRs; ${closing.length} (${Math.round(closeShare * 100)}%) with "Closes #N"`));
 
   const named = merged.filter((p) => BRANCH.test(p.head?.ref ?? ""));
@@ -166,14 +175,17 @@ export function score(d, opts = {}) {
   let best = null;
   for (const p of d.projects ?? []) {
     const onBoard = p.items.filter((it) => it.issue != null && issueNumbers.has(it.issue)).length;
-    const statuses = new Set(p.items.map((it) => it.status).filter(Boolean));
-    if (!best || onBoard > best.onBoard) best = { title: p.title, onBoard, statuses: statuses.size };
+    const used = new Set(p.items.map((it) => it.status).filter(Boolean));
+    const options = (p.statusOptions ?? []).map((o) => o.toLowerCase());
+    const missing = REQUIRED_STATUSES.filter((st) => !options.includes(st.toLowerCase()));
+    if (!best || onBoard > best.onBoard) best = { title: p.title, onBoard, used: used.size, missing };
   }
   const boardShare = best ? pct(best.onBoard, issues.length) : 0;
-  checks.push(check("Way of working", "W6", "GitHub Project with the issues and a used Status field", 6,
-    (boardShare >= 0.8 ? 4 : boardShare >= 0.5 ? 2 : 0) + (best && best.statuses >= 2 ? 2 : 0),
+  const humanGate = /\bQA\b/.test(claude ?? "") && /\bAccepted\b/.test(claude ?? "");
+  checks.push(check("Way of working", "W6", "GitHub Project: issues, the required statuses, the human QA gate", 6,
+    (boardShare >= 0.8 ? 3 : boardShare >= 0.5 ? 1 : 0) + (best && best.missing.length === 0 ? 1 : 0) + (best && best.used >= 3 ? 1 : 0) + (humanGate ? 1 : 0),
     d.projectsError ? `could not read Projects: ${d.projectsError}` :
-      best ? `"${best.title}": ${best.onBoard} of ${issues.length} issues (${Math.round(boardShare * 100)}%), ${best.statuses} different Status values` : "no Project linked to the repository"));
+      best ? `"${best.title}": ${best.onBoard} of ${issues.length} issues (${Math.round(boardShare * 100)}%); ${best.missing.length ? `missing statuses: ${best.missing.join(", ")}` : "all required statuses"}; ${best.used} statuses in use; CLAUDE.md QA/Accepted rule: ${humanGate ? "yes" : "no"}` : "no Project linked to the repository"));
 
   const days = new Set(commits.map((c) => (c.commit?.author?.date ?? "").slice(0, 10)).filter(Boolean));
   checks.push(check("Way of working", "W7", "commits on three or more days", 3,
@@ -181,24 +193,30 @@ export function score(d, opts = {}) {
 
   // ---- Game (20) ----
   const live = d.live ?? {};
-  checks.push(check("Game", "G1", "the game is online and /health answers", 8,
-    (live.pageOk ? 4 : 0) + (live.healthOk ? 4 : 0),
+  checks.push(check("Game", "G1", "the game is online and /health answers", 7,
+    (live.pageOk ? 3 : 0) + (live.healthOk ? 4 : 0),
     !live.url ? "no game URL (pass --url or put a \"Play\" link in the README)" : `${live.url}: page ${live.pageStatus ?? "no answer"}, /health ${live.healthStatus ?? "no answer"}`));
 
   const readme = file("README.md") ?? "";
   const howTo = /^#+\s.*how to play/im.test(readme);
-  checks.push(check("Game", "G2", "README: how to play, players, controls", 4,
-    (howTo ? 2 : 0) + (/\bplayers?\b/i.test(readme) ? 1 : 0) + (/\b(controls?|keys?|keyboard|mouse|WASD|arrow)\b/i.test(readme) ? 1 : 0),
+  checks.push(check("Game", "G2", "README: how to play, players, controls", 3,
+    (howTo ? 1 : 0) + (/\bplayers?\b/i.test(readme) ? 1 : 0) + (/\b(controls?|keys?|keyboard|mouse|WASD|arrow)\b/i.test(readme) ? 1 : 0),
     `"How to play" heading: ${howTo ? "yes" : "no"}`));
 
   const deps = d.allDependencies ?? [];
   const mp = MULTIPLAYER_LIBS.filter((lib) => deps.includes(lib));
-  checks.push(check("Game", "G3", "a real-time multiplayer library", 4,
-    mp.length ? 4 : 0, mp.length ? mp.join(", ") : "none of the known libraries in any package.json (instructor checks other stacks by hand)"));
+  checks.push(check("Game", "G3", "a real-time multiplayer library", 3,
+    mp.length ? 3 : 0, mp.length ? mp.join(", ") : "none of the known libraries in any package.json (instructor checks other stacks by hand)"));
 
   const tests = tree.filter((p) => !/node_modules\//.test(p) && !/^evals\//.test(p) && (/\.(test|spec)\.[cm]?[jt]sx?$/.test(p) || /(^|\/)tests?\/.+\.[cm]?[jt]sx?$/.test(p) || /(^|\/)test_.+\.py$/.test(p)));
-  checks.push(check("Game", "G4", "test files for the game rules", 4,
-    tests.length >= 3 ? 4 : tests.length >= 1 ? 2 : 0, `${tests.length} test file(s)`));
+  checks.push(check("Game", "G4", "test files for the game rules", 3,
+    tests.length >= 3 ? 3 : tests.length >= 1 ? 1 : 0, `${tests.length} test file(s)`));
+
+  const botFiles = tree.filter((p) => !/node_modules\//.test(p) && /(^|[\/_.-])bots?([\/_.-]|$)/i.test(p));
+  const botsInReadme = /\bbots?\b/i.test(readme);
+  checks.push(check("Game", "G5", "bots can fill empty seats", 4,
+    (botsInReadme ? 2 : 0) + (botFiles.length ? 2 : 0),
+    `README mentions bots: ${botsInReadme ? "yes" : "no"}; bot source files: ${botFiles.length ? botFiles.slice(0, 3).join(", ") : "none"}`));
 
   const total = checks.reduce((s, c) => s + c.got, 0);
   const max = checks.reduce((s, c) => s + c.max, 0);
@@ -291,14 +309,31 @@ async function httpStatus(url) {
   }
 }
 
+function graphql(query, vars) {
+  const args = ["api", "graphql", "-f", `query=${query}`];
+  for (const [k, v] of Object.entries(vars)) if (v !== null && v !== undefined) args.push("-F", `${k}=${v}`);
+  return JSON.parse(gh(args));
+}
+
 function readProjects(repo) {
   const [owner, name] = repo.split("/");
-  const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){projectsV2(first:10){nodes{title items(first:100){nodes{content{... on Issue{number}} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}}`;
-  const out = JSON.parse(gh(["api", "graphql", "-f", `query=${query}`, "-F", `owner=${owner}`, "-F", `name=${name}`]));
-  return (out.data?.repository?.projectsV2?.nodes ?? []).map((p) => ({
-    title: p.title,
-    items: (p.items?.nodes ?? []).map((it) => ({ issue: it.content?.number ?? null, status: it.fieldValueByName?.name ?? null })),
-  }));
+  const list = graphql(`query($owner:String!,$name:String!){repository(owner:$owner,name:$name){projectsV2(first:10){nodes{id title field(name:"Status"){... on ProjectV2SingleSelectField{options{name}}}}}}}`, { owner, name });
+  const itemsQuery = `query($id:ID!,$after:String){node(id:$id){... on ProjectV2{items(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{content{... on Issue{number repository{nameWithOwner}}} fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}`;
+  return (list.data?.repository?.projectsV2?.nodes ?? []).map((p) => {
+    const items = [];
+    let after = null;
+    for (let page = 0; page < 20; page++) {
+      const res = graphql(itemsQuery, { id: p.id, after });
+      const conn = res.data?.node?.items;
+      for (const it of conn?.nodes ?? []) {
+        const sameRepo = !it.content?.repository || it.content.repository.nameWithOwner.toLowerCase() === repo.toLowerCase();
+        items.push({ issue: sameRepo ? it.content?.number ?? null : null, status: it.fieldValueByName?.name ?? null });
+      }
+      if (!conn?.pageInfo?.hasNextPage) break;
+      after = conn.pageInfo.endCursor;
+    }
+    return { title: p.title, statusOptions: (p.field?.options ?? []).map((o) => o.name), items };
+  });
 }
 
 export async function collect(repo, url) {
