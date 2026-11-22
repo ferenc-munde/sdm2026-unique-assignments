@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // Automatic evaluator for the SDM 2026 Harness Engineering assignment (see README.md).
 //
-//   node evaluate.mjs --repo owner/name [--url https://game/] [--deadline 2026-12-01T23:59:59+01:00]
+//   node evaluate.mjs --repo owner/name [--url https://game/] [--quality 0-10] [--deadline 2026-12-01T23:59:59+01:00]
 //   node evaluate.mjs --submissions submissions.json [--deadline ...] [--json] > report.md
+//
+// Final score = 70% of the automatic checks (0-100) + 30% game quality, which the instructor
+// gives (0-10) as "quality" in submissions.json or with --quality. Without it the grade is pending.
 //
 // Needs Node 18+ and the GitHub CLI (gh), logged in (`gh auth login`; for the Project check the
 // token needs the read:project scope: `gh auth refresh -s read:project`). No npm packages.
@@ -199,8 +202,31 @@ export function score(d, opts = {}) {
 
   const total = checks.reduce((s, c) => s + c.got, 0);
   const max = checks.reduce((s, c) => s + c.max, 0);
-  const grade = total >= 85 ? 5 : total >= 70 ? 4 : total >= 55 ? 3 : total >= 40 ? 2 : 1;
-  return { total, max, grade, checks };
+  return { total, max, checks };
+}
+
+/** Final grade from points out of 100. */
+export const gradeOf = (points) => (points >= 85 ? 5 : points >= 70 ? 4 : points >= 55 ? 3 : points >= 40 ? 2 : 1);
+
+/** Weights: the automatic checks give 70% of the final score, the instructor's game quality 30%. */
+export const AUTO_WEIGHT = 0.7;
+export const QUALITY_WEIGHT = 0.3;
+
+/**
+ * Combines the automatic score (0-100) with the game quality the instructor gives (0-10).
+ * Without a quality score the result is pending, with the range of grades still possible.
+ */
+export function finalScore(report, quality) {
+  const auto = Math.round(report.total * AUTO_WEIGHT * 10) / 10;
+  if (quality === undefined || quality === null || quality === "") {
+    const min = Math.round(auto);
+    const max = Math.round(auto + QUALITY_WEIGHT * 100);
+    return { auto, quality: null, final: null, grade: null, gradeRange: [gradeOf(min), gradeOf(max)] };
+  }
+  const q = Number(quality);
+  if (!Number.isFinite(q) || q < 0 || q > 10) throw new Error(`game quality must be a number from 0 to 10, got ${quality}`);
+  const final = Math.round(auto + q * QUALITY_WEIGHT * 10);
+  return { auto, quality: q, final, grade: gradeOf(final), gradeRange: null };
 }
 
 // ---- output ------------------------------------------------------------------------------
@@ -210,16 +236,19 @@ const GRADE_WORDS = { 5: "excellent", 4: "good", 3: "satisfactory", 2: "pass", 1
 export function toMarkdown(results, opts = {}) {
   const lines = ["# Harness Engineering assignment – automatic evaluation", ""];
   if (opts.deadline) lines.push(`Deadline: ${opts.deadline}. Work after the deadline is not counted.`, "");
-  lines.push("| Student | Repository | Points | Grade proposal |", "|---|---|---|---|");
+  lines.push("| Student | Repository | Automatic checks | Game quality (instructor) | Final score | Grade proposal |", "|---|---|---|---|---|---|");
   for (const r of results) {
-    lines.push(r.error
-      ? `| ${r.name ?? "–"} | ${r.repo} | – | error: ${r.error} |`
-      : `| ${r.name ?? "–"} | [${r.repo}](https://github.com/${r.repo}) | ${r.report.total}/${r.report.max} | **${r.report.grade}** (${GRADE_WORDS[r.report.grade]}) |`);
+    if (r.error) {
+      lines.push(`| ${r.name ?? "–"} | ${r.repo} | – | – | – | error: ${r.error} |`);
+      continue;
+    }
+    const f = r.final;
+    lines.push(`| ${r.name ?? "–"} | [${r.repo}](https://github.com/${r.repo}) | ${r.report.total}/100 → ${f.auto}/70 | ${f.quality === null ? "pending" : `${f.quality}/10 → ${Math.round(f.quality * 3 * 10) / 10}/30`} | ${f.final === null ? "–" : `${f.final}/100`} | ${f.grade === null ? `pending (${f.gradeRange[0]}–${f.gradeRange[1]})` : `**${f.grade}** (${GRADE_WORDS[f.grade]})`} |`);
   }
-  lines.push("", "Grades: 85+ → 5, 70+ → 4, 55+ → 3, 40+ → 2. A proposal: the instructor reviews each report.", "");
+  lines.push("", "Final score = 70% automatic checks + 30% game quality (0–10, given by the instructor). Grades: 85+ → 5, 70+ → 4, 55+ → 3, 40+ → 2. A proposal: the instructor reviews each report.", "");
   for (const r of results) {
     if (r.error) continue;
-    lines.push(`## ${r.name ?? r.repo} – ${r.report.total}/${r.report.max}, grade ${r.report.grade}`, "");
+    lines.push(`## ${r.name ?? r.repo} – automatic ${r.report.total}/100, final ${r.final.final === null ? "pending game quality" : `${r.final.final}/100, grade ${r.final.grade}`}`, "");
     lines.push("| | Check | Points | Details |", "|---|---|---|---|");
     for (const c of r.report.checks) {
       lines.push(`| ${c.got === c.max ? "✅" : c.got > 0 ? "🟡" : "❌"} ${c.id} | ${c.title} | ${c.got}/${c.max} | ${String(c.detail).replace(/\|/g, "\\|")} |`);
@@ -322,9 +351,9 @@ async function main(argv) {
   if (opts.deadline && Number.isNaN(Date.parse(opts.deadline))) { console.error(`Not a date: ${opts.deadline}`); process.exit(2); }
   const subs = arg("--submissions")
     ? JSON.parse(readFileSync(arg("--submissions"), "utf8"))
-    : arg("--repo") ? [{ repo: arg("--repo"), url: arg("--url") }] : null;
+    : arg("--repo") ? [{ repo: arg("--repo"), url: arg("--url"), quality: arg("--quality") }] : null;
   if (!subs) {
-    console.error("Usage: node evaluate.mjs --repo owner/name [--url https://game/] [--deadline ISO-date] [--json]\n       node evaluate.mjs --submissions submissions.json [--deadline ISO-date] [--json]");
+    console.error("Usage: node evaluate.mjs --repo owner/name [--url https://game/] [--quality 0-10] [--deadline ISO-date] [--json]\n       node evaluate.mjs --submissions submissions.json [--deadline ISO-date] [--json]");
     process.exit(2);
   }
   const results = [];
@@ -332,7 +361,8 @@ async function main(argv) {
     const repo = String(s.repo).replace(/^https:\/\/github\.com\//, "").replace(/\.git$|\/$/g, "");
     process.stderr.write(`evaluating ${repo}...\n`);
     try {
-      results.push({ ...s, repo, report: score(await collect(repo, s.url), opts) });
+      const report = score(await collect(repo, s.url), opts);
+      results.push({ ...s, repo, report, final: finalScore(report, s.quality) });
     } catch (e) {
       results.push({ ...s, repo, error: String(e.stderr || e.message).split("\n")[0] });
     }

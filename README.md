@@ -60,7 +60,18 @@ Your repository must contain the following. The automatic evaluator looks for ex
 
 ## Grading
 
-The evaluator reads your repository through the GitHub API and your game URL over HTTP. It **never runs your code**: tests count through your CI results. 100 points in total:
+Your final score (0–100) has two parts:
+
+| Part | Weight | Who grades it |
+|---|---|---|
+| **Automatic checks** | **70%** | the evaluator script (`evaluate.mjs`) |
+| **Game quality** | **30%** | an instructor, who plays your game |
+
+**Final score = 0.7 × automatic checks (0–100) + 3 × game quality (0–10).**
+
+### Automatic checks (70%)
+
+The evaluator reads your repository through the GitHub API and your game URL over HTTP. It **never runs your code**: tests count through your CI results. It gives 0–100 points:
 
 | Area | Points | What is checked |
 |---|---|---|
@@ -68,7 +79,20 @@ The evaluator reads your repository through the GitHub API and your game URL ove
 | **Way of working** | 30 | issues with label and "Done when"; merged PRs that close an issue; branch names; commit format and issue references; AI co-authored commits; the Project with your issues and a used Status field; commits on three or more days |
 | **Game** | 20 | the game URL and its `/health` answer; README "How to play" with players and controls; a multiplayer library in the dependencies; test files for the game rules |
 
-| Points | Grade |
+### Game quality (30%)
+
+An instructor plays your game with at least two players and gives 0–10 points:
+
+| Criterion | Points |
+|---|---|
+| **Cooperation:** the players really need each other, and working together is the core of the game | 0–3 |
+| **Complete and fun:** lobby → play → win or lose → play again works, rounds are short, and the game is worth replaying | 0–3 |
+| **Stable:** joining by code or link, playing and reconnecting work without errors or desync | 0–2 |
+| **Clear and polished:** a new player understands what to do from the game and the README, and the game looks and feels finished | 0–2 |
+
+### Grade
+
+| Final score | Grade |
 |---|---|
 | 85–100 | 5 (excellent) |
 | 70–84 | 4 (good) |
@@ -76,7 +100,7 @@ The evaluator reads your repository through the GitHub API and your game URL ove
 | 40–54 | 2 (pass) |
 | 0–39 | 1 (fail) |
 
-An instructor reviews every report, and can lower the grade if a requirement is met only on paper (for example an empty `HARNESS.md` section or an eval whose check always passes), or raise it for exceptional work. Copying another student's repository is a fail.
+The instructor also reviews every automatic report, and can lower the grade if a requirement is met only on paper (for example an empty `HARNESS.md` section or an eval whose check always passes), or raise it for exceptional work. Copying another student's repository is a fail.
 
 ## Self-check
 
@@ -86,4 +110,4 @@ You can run the evaluator on your own repository before you submit. It needs [No
 node evaluate.mjs --repo <your-login>/<your-repo> --url https://<your-game-address>/
 ```
 
-`evaluate.mjs` is in this repository: clone it, or download the file. The report lists every check with the points it gave and what is missing. The instructors run the same script on your submission.
+`evaluate.mjs` is in this repository: clone it, or download the file. The report lists every check with the points it gave and what is missing. The instructors run the same script on your submission. Without the game quality score the report shows your automatic part and the range of grades still possible.
